@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Generated at run time (the backend trains model.joblib itself on first start)
+2_Backend/model.joblib
+2_Backend/data/windows.csv
+2_Backend/data/baseline.csv
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+*.tmp

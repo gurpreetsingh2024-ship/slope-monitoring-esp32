@@ -1,0 +1,52 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Slope Monitor</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#0f1419;color:#e6e6e6}
+#banner{padding:16px;border-radius:10px;text-align:center;font-size:30px;font-weight:700;background:#37474f}
+#note{font-size:15px;font-weight:400;margin-top:4px}
+.NORMAL{background:#1f7a3d!important}.WATCH{background:#b8860b!important}.ALERT{background:#c62828!important}
+#stats{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}
+.hot{outline:2px solid #e74c3c}
+.s{background:#1b222b;border-radius:8px;padding:8px 14px;min-width:110px}.s b{display:block;font-size:22px}
+.c{background:#1b222b;border-radius:8px;padding:8px;margin-bottom:10px}.c div{font-size:13px;color:#9aa5b1}
+canvas{width:100%;height:120px;display:block}
+button{padding:8px 16px;font-size:15px;border-radius:6px;border:0;background:#2d6cdf;color:#fff;cursor:pointer}
+</style></head><body>
+<div id="banner">Waiting for data...<div id="note"></div></div>
+<div id="stats"></div>
+<button onclick="fetch('/api/reset',{method:'POST'})">Set baseline now</button>
+<div class="c"><div>Tilt change from baseline (deg): outward = blue, sideways = orange; dashed = alert level</div><canvas id="c1" width="900" height="120"></canvas></div>
+<div class="c"><div>Vibration RMS (mg); dashed = alert level</div><canvas id="c2" width="900" height="120"></canvas></div>
+<div class="c"><div>Soil moisture (%)</div><canvas id="c3" width="900" height="120"></canvas></div>
+<div class="c"><div>Status history (green normal, yellow watch, red alert)</div><canvas id="c4" width="900" height="30"></canvas></div>
+<script>
+const SC={NORMAL:'#2ecc71',WATCH:'#f1c40f',ALERT:'#e74c3c',CALIBRATING:'#90a4ae'};
+function plot(id,series,colors,lines){
+  const c=document.getElementById(id),x=c.getContext('2d'),W=c.width,H=c.height;x.clearRect(0,0,W,H);
+  const all=series.flat().concat(lines||[]).filter(v=>v!=null&&isFinite(v));if(!all.length)return;
+  let lo=Math.min(0,...all),hi=Math.max(...all);if(hi==lo)hi=lo+1;
+  const Y=v=>H-6-(v-lo)/(hi-lo)*(H-12);
+  x.setLineDash([5,4]);x.strokeStyle='#888';x.lineWidth=1;
+  (lines||[]).forEach(v=>{x.beginPath();x.moveTo(0,Y(v));x.lineTo(W,Y(v));x.stroke()});
+  x.setLineDash([]);x.lineWidth=2;
+  series.forEach((s,k)=>{x.strokeStyle=colors[k];x.beginPath();
+    s.forEach((v,i)=>{const px=i/Math.max(s.length-1,1)*W,py=Y(v==null||!isFinite(v)?0:v);i?x.lineTo(px,py):x.moveTo(px,py)});x.stroke()});
+}
+async function tick(){
+  let s;try{s=await (await fetch('/api/state')).json()}catch(e){return}
+  const b=document.getElementById('banner');b.className=s.status;
+  const stale=s.age!=null&&s.age>15;
+  b.firstChild.textContent=s.status+((s.status=='ALERT'||s.status=='WATCH')&&s.cause?' - '+s.cause:'');document.getElementById('note').textContent=stale?'No data from the ESP32 for '+Math.round(s.age)+' s - check WiFi / power':s.note;
+  const h=s.hist,L=h[h.length-1],f=(v,d)=>v==null||!isFinite(v)?'-':v.toFixed(d),T=s.cfg.TILT_FLOOR,V=s.cfg.VIB_FLOOR;
+  if(L)document.getElementById('stats').innerHTML=[
+    ['Tilt out',f(L.d_out,1)+'\u00b0',Math.abs(L.d_out)>=T],['Tilt side',f(L.d_lat,1)+'\u00b0',Math.abs(L.d_lat)>=T],['Vibration',f(L.vib_rms_mg,0)+' mg',L.vib_rms_mg>=V],
+    ['Dom. freq',f(L.dom_hz,1)+' Hz'],['Moisture',f(L.moist_pct,0)+' %'],['Anomaly score',f(L.score,3)],['Last data',f(s.age,0)+' s ago'],['Absolute tilt',f(L.tilt_out,0)+'\u00b0 / '+f(L.tilt_lat,0)+'\u00b0']]
+    .map(a=>`<div class="s${a[2]?' hot':''}">${a[0]}<b>${a[1]}</b></div>`).join('');
+  plot('c1',[h.map(r=>r.d_out),h.map(r=>r.d_lat)],['#4aa3ff','#ff9f43'],[T,-T]);
+  plot('c2',[h.map(r=>r.vib_rms_mg)],['#e6e6e6'],[V]);
+  plot('c3',[h.map(r=>r.moist_pct)],['#4dd0e1'],[]);
+  const c=document.getElementById('c4'),x=c.getContext('2d'),w=c.width/150;x.clearRect(0,0,c.width,c.height);
+  h.forEach((r,i)=>{x.fillStyle=SC[r.status];x.fillRect(i*w,0,w+1,c.height)});
+}
+setInterval(tick,1000);tick();
+</script></body></html>
